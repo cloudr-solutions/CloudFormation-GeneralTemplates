@@ -1,0 +1,261 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+# This CloudFormation template deploys a basic VPC / Network. 
+#
+# It deploys a VPC with 4 subnets (2 public, 2 private) across 2 Availability Zones
+
+# The VPC and subnets are exported for use by other stacks.
+
+Metadata: 
+  # Control the UI display when running this template from the AWS Management Console:
+  AWS::CloudFormation::Interface: 
+    ParameterGroups: 
+      - Label: 
+          default: "Network Configuration"
+        Parameters: 
+          - NumberOfAZs
+          - PrivateSubnets
+
+Parameters:
+  PrivateSubnets:
+    Type: String
+    AllowedValues: 
+    - True
+    - False
+    Default: True
+    Description: Do you want to create private subnets in addition to public subnets?
+
+  NumberOfAZs:
+    Type: Number
+    AllowedValues: 
+    - 1
+    - 2
+    - 3
+    Default: 2
+    Description:  How many Availability Zones do you wish to utilize?
+
+ 
+Conditions:
+  BuildPublicB:         !Not [ !Equals [ !Ref NumberOfAZs, 1 ]]  
+  BuildPublicC:         !Equals [ !Ref NumberOfAZs, 3 ]  
+  BuildPrivateSubnets:  !Equals [ !Ref PrivateSubnets, True ] 
+  BuildPrivateA:        !Equals [ !Ref PrivateSubnets, True ]       # Can't determine how to build a condition from a separate single condition
+  BuildPrivateB:        !And [ Condition: BuildPrivateSubnets, Condition: BuildPublicB ]
+  BuildPrivateC:        !And [ Condition: BuildPrivateSubnets, Condition: BuildPublicC ]
+  
+
+
+Resources:
+
+  # Creating the basic VPC:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.1.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-VPC
+        
+  # Creating an IGW:      
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    DependsOn: VPC
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref VPC
+      InternetGatewayId: !Ref InternetGateway
+
+
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.10.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs ]    # Get the first AZ in the list        
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Public-A
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Condition: BuildPublicB
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.20.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs ]    # Get the second AZ in the list  
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Public-B
+  PublicSubnetC:
+    Type: AWS::EC2::Subnet
+    Condition: BuildPublicC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.30.0/24
+      AvailabilityZone: !Select [ 2, !GetAZs ]    # Get the third AZ in the list  
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Public-C
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Condition: BuildPrivateA
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.50.0/24
+      AvailabilityZone: !Select [ 0, !GetAZs ]    # Get the first AZ in the list  
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Private-A
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Condition: BuildPrivateB
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.60.0/24
+      AvailabilityZone: !Select [ 1, !GetAZs ]    # Get the second AZ in the list  
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Private-B
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet
+    Condition: BuildPrivateC
+    Properties:
+      VpcId: !Ref VPC
+      CidrBlock: 10.1.70.0/24
+      AvailabilityZone: !Select [ 2, !GetAZs ]    # Get the third AZ in the list  
+      Tags:
+      - Key: Name
+        Value: !Sub ${AWS::StackName}-Private-C
+        
+  # Some route tables for our subnets:        
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Public
+  PublicRoute1:   # Public route table has direct routing to IGW:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+      
+  
+  PrivateRouteTable:
+    Type: AWS::EC2::RouteTable
+    Condition: BuildPrivateSubnets
+    Properties:
+      VpcId: !Ref VPC
+      Tags:
+      - Key: Name
+        Value: Private
+  PrivateRoute1:            # Private route table can access web via NAT (created below)
+    Type: AWS::EC2::Route
+    Condition: BuildPrivateSubnets
+    Properties:
+      RouteTableId: !Ref PrivateRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      InstanceId:   !Ref NATInstance
+  
+
+  # Attach the public subnets to public route tables, 
+  # and attach the private subnets to private route tables:    
+  PublicSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnetA
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: BuildPublicB
+    Properties:
+      SubnetId: !Ref PublicSubnetB
+      RouteTableId: !Ref PublicRouteTable
+  PublicSubnetCRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: BuildPublicC
+    Properties:
+      SubnetId: !Ref PublicSubnetC
+      RouteTableId: !Ref PublicRouteTable
+  PrivateSubnetARouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: BuildPrivateA
+    Properties:
+      SubnetId: !Ref PrivateSubnetA
+      RouteTableId: !Ref PrivateRouteTable
+  PrivateSubnetBRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: BuildPrivateB
+    Properties:
+      SubnetId: !Ref PrivateSubnetB
+      RouteTableId: !Ref PrivateRouteTable
+  PrivateSubnetCRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: BuildPrivateC
+    Properties:
+      SubnetId: !Ref PrivateSubnetC
+      RouteTableId: !Ref PrivateRouteTable
+      
+
+
+  # This is the NAT GW
+  NATGateway:
+    Type: AWS::EC2::NatGateway
+    Properties: 
+      AllocationId: !GetAtt ElasticIPAddress.AllocationId
+      SubnetId: !Ref PublicSubnetA
+      Tags: 
+      - Key: Name
+        Value: !Sub NAT-${AWS::StackName}
+  ElasticIPAddress:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: VPC
+
+
+Outputs:
+  VPC:
+    Description: VPC of the base network
+    Value: !Ref VPC
+    Export:
+      Name: !Sub ${AWS::StackName}-VPC
+  PublicSubnetA:
+    Description: First Public Subnet
+    Value: !Ref PublicSubnetA
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetA
+  PublicSubnetB:
+    Description: Second Public Subnet
+    Condition: BuildPublicB
+    Value: !Ref PublicSubnetB
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetB
+  PublicSubnetC:
+    Description: Third Public Subnet
+    Condition: BuildPublicC
+    Value: !Ref PublicSubnetC
+    Export:
+      Name: !Sub ${AWS::StackName}-PublicSubnetC
+  PrivateSubnetA:
+    Condition: BuildPrivateSubnets
+    Description: First Private Subnet
+    Value: !Ref PrivateSubnetA
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnetA
+  PrivateSubnetB:
+    Condition: BuildPrivateB
+    Description: Second Private Subnet
+    Value: !Ref PrivateSubnetB
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnetB
+  PrivateSubnetC:
+    Condition: BuildPrivateC
+    Description: Third Private Subnet
+    Value: !Ref PrivateSubnetC
+    Export:
+      Name: !Sub ${AWS::StackName}-PrivateSubnetC
