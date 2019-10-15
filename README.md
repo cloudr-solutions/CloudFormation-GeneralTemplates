@@ -1,3 +1,3 @@
 # CloudFormation-GeneralTemplates
 
-This repository contains Cloud Formation templates and scripts
+This repository contains general Cloud Formation templates and scripts
