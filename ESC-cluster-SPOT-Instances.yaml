@@ -312,7 +312,7 @@ Resources:
    ECSCLUSTER:
     Type: AWS::ECS::Cluster
     Properties: 
-      ClusterName: EcsCluster
+      ClusterName: !Ref EcsCluster
       Tags: []
   Vpc:
     Condition: CreateVpcResources
