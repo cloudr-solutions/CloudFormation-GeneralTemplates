@@ -309,6 +309,11 @@ Conditions:
       - !Ref 'SpotPrice'
       - 0
 Resources:
+   ECSCLUSTER:
+    Type: AWS::ECS::Cluster
+    Properties: 
+      ClusterName: EcsCluster
+      Tags: []
   Vpc:
     Condition: CreateVpcResources
     Type: AWS::EC2::VPC
