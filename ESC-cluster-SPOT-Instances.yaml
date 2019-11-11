@@ -1,5 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: AWS CloudFormation template to create an Autoscaling Group of SPOT Instances in an ECS cluster - for LEANDA
+
 Mappings:
   VpcCidrs:
     vpc:
@@ -249,7 +250,7 @@ Parameters:
     Description: Optional - Automatically assign public IP addresses to new instances
       in this VPC.
     Default: 'true'
-  EcsCluster:
+  ECSCluster:
     Type: String
     Description: ECS Cluster Name
     Default: LEANDA
@@ -261,11 +262,11 @@ Parameters:
     Type: String
     Description: Optional - Whether to create resources only for running Fargate tasks.
     Default: 'false'
-  UserData:
-    Type: String
-    Description: User data for EC2 instances. Required for EC2 launch type, ignored
-      with Fargate
-    Default: 'Content-Type: multipart/mixed; boundary="2a211a81b35ab649a568a93cb2bdf6fe373e1720ed9e34c30dbb2dc89129" MIME-Version: 1.0 --2a211a81b35ab649a568a93cb2bdf6fe373e1720ed9e34c30dbb2dc89129 Content-Type: text/text/x-shellscript; charset="utf-8" Mime-Version: 1.0 #!/bin/bash echo ECS_CLUSTER=LEANDA >> /etc/ecs/ecs.config --2a211a81b35ab649a568a93cb2bdf6fe373e1720ed9e34c30dbb2dc89129--'
+  # UserData:
+  #   Type: String
+  #   Description: User data for EC2 instances. Required for EC2 launch type, ignored
+  #     with Fargate
+  #   Default: 'Content-Type: multipart/mixed; boundary="2a211a81b35ab649a568a93cb2bdf6fe373e1720ed9e34c30dbb2dc89129" MIME-Version: 1.0 --2a211a81b35ab649a568a93cb2bdf6fe373e1720ed9e34c30dbb2dc89129 Content-Type: text/text/x-shellscript; charset="utf-8" Mime-Version: 1.0 #!/bin/bash echo ECS_CLUSTER=LEANDA >> /etc/ecs/ecs.config --2a211a81b35ab649a568a93cb2bdf6fe373e1720ed9e34c30dbb2dc89129--'
 Conditions:
   IsCNRegion: !Or
     - !Equals
@@ -309,10 +310,10 @@ Conditions:
       - !Ref 'SpotPrice'
       - 0
 Resources:
-   ECSCLUSTER:
+  ECSCLUSTER:
     Type: AWS::ECS::Cluster
     Properties: 
-      ClusterName: !Ref EcsCluster
+      ClusterName: !Ref ECSCluster
       Tags: []
   Vpc:
     Condition: CreateVpcResources
@@ -464,8 +465,10 @@ Resources:
         - CreateSecurityGroup
         - - !Ref 'EcsSecurityGroup'
         - !Ref 'SecurityGroupIds'
-      UserData: !Base64
-        Ref: UserData
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -xe
+          echo ECS_CLUSTER=${ECSCluster} >> /etc/ecs/ecs.config
   EcsInstanceAsg:
     Condition: LaunchInstances
     Type: AWS::AutoScaling::AutoScalingGroup
